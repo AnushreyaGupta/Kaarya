@@ -1,0 +1,45 @@
+.role-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+  padding: 4px;
+  background: #f2f3f7;
+  border-radius: 10px;
+  margin: 0 0 17px;
+}
+.role-tabs button {
+  border: 0;
+  background: transparent;
+  color: #7b8796;
+  border-radius: 7px;
+  padding: 9px 4px;
+  font: 600 11.5px inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: center;
+}
+.role-tabs button.chosen-role {
+  background: white;
+  color: #5666d6;
+  box-shadow: 0 2px 6px #5360841c;
+  font-weight: 700;
+}
+.forgot-link {
+  display: block;
+  border: 0;
+  background: transparent;
+  color: #6575df;
+  font: 600 11px inherit;
+  cursor: pointer;
+  margin: -5px 0 15px auto;
+  padding: 0;
+}
+.sidebar .profile-wrap {
+  display: none;
+}
+.sidebar-bottom > button span {
+  font-size: 13.5px;
+}
+.auth-card h2 {
+  margin-top: 0;
+}

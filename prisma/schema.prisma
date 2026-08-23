@@ -1,0 +1,253 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String
+  name            String
+  role            String   @default("STUDENT") // STUDENT, ACADEMICIAN, INDUSTRY, INSTITUTION, PLACEMENT_CELL
+  avatar          String?  @default("🎓")
+  department      String?  @default("Computer Science")
+  phone           String?
+  collegeName     String?  @default("Apex Institute of Technology")
+  companyName     String?
+  designation     String?
+  admissionNumber String?
+  cgpa            Float?   @default(7.8)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  assessments     SkillAssessment[]
+  enrollments     ProgramEnrollment[]
+  createdOpps     Opportunity[]        @relation("OpportunityCreator")
+  facultyApps     FacultyApplication[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  portfolio       DigitalPortfolio?
+}
+
+model Skill {
+  id                String             @id @default(uuid())
+  name              String             @unique
+  category          String             @default("Technical") // Technical, Soft, Domain
+  opportunitySkills OpportunitySkill[]
+}
+
+model SkillAssessment {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id])
+  targetRole         String   @default("Software Engineering Intern")
+  overallScore       Int      @default(78) // 0 - 100
+  strengths          String   // Comma-separated or JSON string
+  skillGaps          String   // Comma-separated or JSON string
+  recommendedCourses String   // JSON string of courses
+  categoryScores     String?  // JSON string of category breakdown
+  answers            String?  // JSON string of submitted answers
+  completedAt        DateTime @default(now())
+}
+
+model LearningProgram {
+  id                 String              @id @default(uuid())
+  title              String
+  provider           String              // e.g. "Google Cloud", "Amazon Web Services", "Apex Institute", "Nexora AI"
+  providerType       String              @default("INDUSTRY") // INDUSTRY, ACADEMIA, MOOC
+  description        String
+  category           String              @default("Software Development") // AI/ML, Cloud, Data, Soft Skills, Cybersecurity
+  level              String              @default("Intermediate") // Beginner, Intermediate, Advanced
+  duration           String              @default("4 Weeks")
+  skillsCovered      String              // Comma-separated string
+  enrollCount        Int                 @default(0)
+  rating             Float               @default(4.8)
+  mode               String              @default("Self-paced Online")
+  url                String?
+  certificateOffered Boolean             @default(true)
+  publishedById      String?
+  createdAt          DateTime            @default(now())
+
+  enrollments        ProgramEnrollment[]
+}
+
+model ProgramEnrollment {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id])
+  programId       String
+  program         LearningProgram @relation(fields: [programId], references: [id])
+  progressPercent Int             @default(0)
+  status          String          @default("ENROLLED") // ENROLLED, IN_PROGRESS, COMPLETED
+  certificateId   String?
+  completedAt     DateTime?
+  createdAt       DateTime        @default(now())
+
+  @@unique([userId, programId])
+}
+
+model Opportunity {
+  id            String             @id @default(uuid())
+  title         String
+  role          String
+  company       String
+  location      String             @default("Bengaluru")
+  workMode      String             @default("HYBRID") // REMOTE, HYBRID, ONSITE
+  type          String             @default("Internship") // Internship, Full-time, Campus drive, Project, Apprenticeship
+  stipend       String?            @default("INR 30,000 / month")
+  deadline      DateTime
+  minCgpa       Float?             @default(6.5)
+  openings      Int                @default(2)
+  eligibleDepts String             @default("CSE, IT, AI & DS, ECE") // Comma-separated
+  description   String
+  status        String             @default("PUBLISHED") // DRAFT, PUBLISHED, CLOSED
+  logo          String?            @default("✦")
+  color         String?            @default("#e8ebff")
+  createdById   String
+  createdBy     User               @relation("OpportunityCreator", fields: [createdById], references: [id])
+  skills        OpportunitySkill[]
+  applications  Application[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+model OpportunitySkill {
+  opportunityId String
+  skillId       String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id])
+  skill         Skill       @relation(fields: [skillId], references: [id])
+
+  @@id([opportunityId, skillId])
+}
+
+model Application {
+  id              String                     @id @default(uuid())
+  opportunityId   String
+  opportunity     Opportunity                @relation(fields: [opportunityId], references: [id])
+  studentId       String
+  studentName     String
+  studentEmail    String
+  resumeName      String?                    @default("Resume.pdf")
+  resumeText      String?
+  status          String                     @default("SUBMITTED") // SUBMITTED, UNDER_REVIEW, SHORTLISTED, INTERVIEW_SCHEDULED, INTERVIEWED, SELECTED, REJECTED, WITHDRAWN, COMPLETED
+  interviewDate   DateTime?
+  interviewTime   String?
+  interviewMode   String?                    @default("ONLINE")
+  meetingUrl      String?
+  notes           String?
+  history         ApplicationStatusHistory[]
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+
+  @@unique([opportunityId, studentEmail])
+}
+
+model ApplicationStatusHistory {
+  id            String      @id @default(uuid())
+  applicationId String
+  application   Application @relation(fields: [applicationId], references: [id])
+  fromStatus    String?
+  toStatus      String
+  actorId       String
+  note          String?
+  createdAt     DateTime    @default(now())
+}
+
+model FacultyOpportunity {
+  id             String               @id @default(uuid())
+  title          String
+  organization   String
+  type           String               @default("FACULTY_INTERNSHIP") // FACULTY_INTERNSHIP, FDP, INDUSTRIAL_TRAINING, CONSULTANCY, RESEARCH_PROJECT
+  description    String
+  department     String               @default("Engineering & Technology")
+  duration       String               @default("4 Weeks")
+  stipendOrGrant String?              @default("Funded by Industry")
+  deadline       DateTime
+  location       String               @default("Bengaluru / Hybrid")
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  applications   FacultyApplication[]
+}
+
+model FacultyApplication {
+  id                   String             @id @default(uuid())
+  facultyOpportunityId String
+  facultyOpportunity   FacultyOpportunity @relation(fields: [facultyOpportunityId], references: [id])
+  facultyId            String
+  faculty              User               @relation(fields: [facultyId], references: [id])
+  facultyName          String
+  facultyEmail         String
+  department           String
+  proposalText         String
+  status               String             @default("SUBMITTED") // SUBMITTED, UNDER_REVIEW, APPROVED, REJECTED
+  createdAt            DateTime           @default(now())
+}
+
+model CollaborationInitiative {
+  id                String   @id @default(uuid())
+  title             String
+  hostCompany       String
+  hostInstitution   String   @default("Apex Institute of Technology")
+  type              String   @default("LIVE_PROJECT") // MENTORSHIP, LIVE_PROJECT, HACKATHON, GUEST_LECTURE, JOINT_RESEARCH, MOU
+  description       String
+  domain            String   @default("Applied AI & Cloud")
+  participantsCount Int      @default(0)
+  startDate         DateTime @default(now())
+  status            String   @default("ACTIVE") // UPCOMING, ACTIVE, COMPLETED
+  createdById       String?
+  createdAt         DateTime @default(now())
+}
+
+model DigitalPortfolio {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id])
+  bio            String?  @default("Aspiring Software Engineer & ML Practitioner passionate about building real-world intelligent systems.")
+  githubUrl      String?  @default("https://github.com/student")
+  linkedinUrl    String?  @default("https://linkedin.com/in/student")
+  portfolioUrl   String?
+  projects       String?  // JSON string array of projects
+  certifications String?  // JSON string array of certifications
+  achievements   String?  // JSON string array of achievements
+  verifiedSkills String?  // JSON string array of verified skill tags
+  updatedAt      DateTime @updatedAt
+}
+
+model Certificate {
+  id             String   @id @default(uuid())
+  certificateId  String   @unique
+  recipientName  String
+  recipientEmail String
+  title          String
+  issuer         String   @default("Academia-Industry Collaboration Council")
+  issueDate      DateTime @default(now())
+  documentUrl    String?
+  hash           String   @unique
+  status         String   @default("VERIFIED") // VERIFIED, REVOKED
+  createdAt      DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  body      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  actor      User     @relation(fields: [actorId], references: [id])
+  action     String
+  entityType String
+  entityId   String
+  metadata   String?  // JSON string
+  createdAt  DateTime @default(now())
+}
