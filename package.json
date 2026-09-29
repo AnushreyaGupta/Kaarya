@@ -1,7 +1,7 @@
 {
   "scripts": {
     "dev": "vite --configLoader native",
-    "build": "vite build --configLoader native",
+    "build": "prisma generate && vite build --configLoader native",
     "start": "npm run start:api",
     "dev:api": "tsx watch server/index.ts",
     "start:api": "tsx server/index.ts",
