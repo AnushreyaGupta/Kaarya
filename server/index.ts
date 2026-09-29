@@ -7,11 +7,9 @@ import rateLimit from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { z } from 'zod';
 
-const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL || 'file:./dev.db' });
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient();
 const app = express();
 const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'oncampus-local-development-secret');
 if (!secret) throw new Error('JWT_SECRET must be set in production.');
