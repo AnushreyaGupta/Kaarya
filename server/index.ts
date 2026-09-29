@@ -2024,6 +2024,12 @@ app.use((req, res, next) => {
 });
 app.use((_req, res) => fail(res, 404, 'NOT_FOUND', 'Route not found'));
 
-app.listen(PORT, () => {
-  console.log(`Academia-Industry Collaboration Portal API server running on port ${PORT}`);
-});
+// Vercel imports the default-exported Express app as a serverless function.
+// Keep the listener for local development and the standalone Render deployment.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Academia-Industry Collaboration Portal API server running on port ${PORT}`);
+  });
+}
+
+export default app;

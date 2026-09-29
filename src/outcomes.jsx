@@ -90,7 +90,9 @@ const apiRoleForPortal = {
 };
 
 const portalForApiRole = Object.fromEntries(Object.entries(apiRoleForPortal).map(([portal, apiRole]) => [apiRole, portal]));
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:4000";
+// In production, call the API on this deployment's origin. The localhost
+// fallback is only useful when running the frontend with Vite locally.
+const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? "http://localhost:4000" : "");
 
 async function apiRequest(path, token, options = {}) {
   let response;
