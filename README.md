@@ -1,15 +1,22 @@
 # OpportuNet
 
-Vite/React frontend plus a TypeScript Express REST API backed by PostgreSQL and Prisma.
+OpportuNet combines a React/Vite portal with an Express API and Prisma-backed SQLite database. The same Express service serves the built frontend and `/api` endpoints, so deployed browser requests stay on the same origin.
 
-## Setup
+## Run locally
 
-1. Copy `.env.example` to `.env` and set `DATABASE_URL` and a strong `JWT_SECRET`.
-2. Run `npm install`, `npm run prisma:generate`, and `npm run prisma:migrate -- --name init`.
-3. Run `npm run dev` for the frontend and `npm run dev:api` for the API.
+1. Install dependencies with `npm install`.
+2. Copy `.env.example` to `.env`; set a private `JWT_SECRET` for any shared environment.
+3. Run `npm run prisma:generate`, then `npm run db:deploy`.
+4. Start the API with `npm run dev:api` and the frontend with `npm run dev` in separate terminals.
 
-## API highlights
+The local API uses `http://localhost:4000`; Vite proxies `/api` requests to it. Local SQLite data is stored in `dev.db`.
 
-JWT auth and RBAC protect the student, employer, mentor, placement-cell, and admin flows. Core endpoints include `/api/auth`, `/api/opportunities`, `/api/opportunities/:id/apply`, `/api/applications`, `/api/notifications`, and public `/api/certificates/verify/:certificateId`.
+## Deploy on Render
 
-Application transitions are enforced server-side and each transition records status history, notifications, and an audit record. The Prisma schema provides the normalized foundation for profiles, skills, opportunities, documents, interviews, certificates, placements, mentor requests, recommendations, and audit logs.
+The included `render.yaml` creates one web service, builds the Vite app, deploys the Prisma schema, and starts Express. It provisions a persistent disk at `/var/data`, stores SQLite there, generates `JWT_SECRET`, and uses `/health` as the health check. Deploy from the repository root and keep the disk attached to preserve user data.
+
+For another host, build with `npm ci && npm run prisma:generate && npm run build`, then start with `npm run db:deploy && npm start`. Set `NODE_ENV=production`, a persistent SQLite `DATABASE_URL`, and a long random `JWT_SECRET`; the host must provide durable storage for the database file.
+
+## API
+
+JWT auth and RBAC protect student, employer, mentor, placement-cell, and admin flows. Core endpoints include `/api/auth`, `/api/opportunities`, `/api/applications`, `/api/notifications`, and public `/api/certificates/verify/:certificateId`.

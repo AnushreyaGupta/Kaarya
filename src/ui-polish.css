@@ -1,0 +1,71 @@
+:root {
+  --ui-green: #286b49;
+  --ui-ink: #26352b;
+  --ui-muted: #78847a;
+  --ui-line: #e5ebe3;
+  --ui-paper: #ffffff;
+  --ui-shadow: 0 8px 24px rgba(31, 54, 37, .055);
+}
+
+html { scroll-behavior: smooth; }
+body { min-width: 320px; color: var(--ui-ink); }
+::selection { background: #dcebdc; color: #1d4a31; }
+
+.page-content { width: 100%; }
+.page-heading { gap: 18px; margin-bottom: 23px; }
+.page-heading h1 { color: var(--ui-ink); letter-spacing: -.45px; }
+.page-subtitle { max-width: 760px; line-height: 1.65; }
+.panel, .metric-card { border-color: var(--ui-line); border-radius: 11px; box-shadow: var(--ui-shadow); }
+.panel { transition: border-color .18s ease, box-shadow .18s ease; }
+.panel-heading { gap: 12px; }
+.panel-heading h2 { letter-spacing: -.2px; }
+.metric-card { padding: 17px; }
+.metric-card > p { line-height: 1.45; }
+
+.button { border-radius: 8px; font-weight: 650; transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease, transform .16s ease; }
+.button-primary { box-shadow: 0 3px 8px rgba(40, 107, 73, .15); }
+.button-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(40, 107, 73, .2); }
+.button-light:hover:not(:disabled) { border-color: #cbd9cb; background: #f6f9f5; }
+input, select, textarea { accent-color: var(--ui-green); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { border-color: #79a886; box-shadow: 0 0 0 3px rgba(92, 148, 105, .13); outline: none; }
+button:focus-visible, a:focus-visible { outline: 3px solid #7eaf8b; outline-offset: 3px; }
+.table-wrap { border-radius: 9px; }
+.trainee-table tbody tr { transition: background-color .14s ease; }
+.empty-state { border-radius: 9px; line-height: 1.6; }
+
+.login-screen { min-height: 100svh; grid-template-columns: minmax(0, 1.02fr) minmax(420px, .98fr); background: #f6f8f4; }
+.login-story { min-height: 100svh; padding: clamp(26px, 5vw, 64px); background: radial-gradient(ellipse at 8% 90%, #2b6144 0, transparent 44%), linear-gradient(145deg, #173c2b, #204c35 75%, #1b422f); }
+.login-story:after { right: -120px; bottom: -220px; width: 560px; height: 560px; border-color: #ffffff18; box-shadow: 0 0 0 55px #ffffff08, 0 0 0 110px #ffffff05; }
+.brand-lockup-light { z-index: 1; }
+.story-copy { max-width: 520px; }
+.story-copy h1 { font-size: clamp(42px, 5vw, 68px); letter-spacing: -2.6px; }
+.story-copy > p:last-child { max-width: 410px; font-size: 14px; line-height: 1.8; }
+.login-form-side { padding: clamp(20px, 5vw, 64px); }
+.login-form { width: min(440px, 100%); padding: clamp(22px, 4vw, 38px); border: 1px solid #e7ece5; border-radius: 16px; background: #fff; box-shadow: 0 20px 55px rgba(34, 54, 39, .09); }
+.login-form h2 { font-size: 28px; letter-spacing: -.9px; }
+.login-form > .muted { margin: 9px 0 24px; line-height: 1.6; }
+.login-form > label { gap: 8px; margin: 16px 0; color: #4d5e51; font-size: 11px; }
+.login-form input, .login-form select { height: 45px; border-color: #dfe7de; border-radius: 8px; font-size: 12px; }
+.login-submit { height: 46px; margin-top: 11px; border-radius: 8px; }
+.login-switch { margin: 20px 0 0; color: #768278; }
+.login-switch button { padding: 4px; border-radius: 4px; }
+.auth-error { padding: 10px 12px; border: 1px solid #f0d2cd; border-radius: 8px; background: #fff7f5; color: #a44137; font-size: 11px; line-height: 1.5; }
+
+@media (max-width: 900px) {
+  .login-screen { grid-template-columns: minmax(0, 1fr) minmax(360px, .9fr); }
+  .login-form-side { padding: 24px; }
+  .login-form { padding: 25px; }
+}
+@media (max-width: 680px) {
+  .page-heading { align-items: flex-start; flex-direction: column; gap: 9px; margin-bottom: 18px; }
+  .login-screen { grid-template-columns: 1fr; }
+  .login-story { min-height: auto; padding: 22px 7%; }
+  .story-copy { margin: 27px 0 16px; }
+  .story-copy h1 { margin: 8px 0; font-size: clamp(36px, 10vw, 48px); }
+  .story-copy > p:last-child { max-width: 440px; margin-bottom: 0; font-size: 12px; }
+  .login-form-side { padding: 18px 14px 28px; }
+  .login-form { width: min(460px, 100%); padding: 23px 19px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

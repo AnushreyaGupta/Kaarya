@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -12,7 +13,8 @@ import { z } from 'zod';
 const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL || 'file:./dev.db' });
 const prisma = new PrismaClient({ adapter });
 const app = express();
-const secret = process.env.JWT_SECRET || 'oncampus-super-secret-key-2026';
+const secret = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? '' : 'oncampus-local-development-secret');
+if (!secret) throw new Error('JWT_SECRET must be set in production.');
 const PORT = Number(process.env.PORT || 4000);
 
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -101,7 +103,7 @@ app.post('/api/auth/register', async (req, res) => {
         email,
         passwordHash: await bcrypt.hash(data.password, 10),
         role: data.role,
-        department: data.department || (data.role === 'STUDENT' ? 'Computer Science' : undefined),
+        department: data.department || (data.role === 'STUDENT' ? 'Computer Science' : data.role === 'PLACEMENT_CELL' ? null : undefined),
         admissionNumber: data.admissionNumber,
         companyName: data.companyName || (data.role === 'INDUSTRY' ? data.name : undefined),
         designation: data.designation,
@@ -123,9 +125,48 @@ app.post('/api/auth/register', async (req, res) => {
           achievements: JSON.stringify([]),
         },
       });
+      await prisma.outcomeTrainee.create({
+        data: {
+          publicId: `TR-${user.id.slice(0, 8).toUpperCase()}`,
+          name: user.name,
+          initials: user.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase(),
+          city: 'Not provided',
+          district: 'Not provided',
+          course: 'Not yet assigned',
+          provider: user.collegeName || 'Not provided',
+          trainedAt: new Date(),
+          gender: 'Not provided',
+          age: 0,
+          phoneMasked: user.phone || 'Not provided',
+          employmentStatus: 'Seeking work',
+          consentActive: false,
+          linkedUserId: user.id,
+        },
+      });
     }
 
     await audit(user.id, 'USER_REGISTERED', 'User', user.id, { role: user.role });
+
+    // Keep the programme and employer workspaces in sync with new trainee accounts.
+    // Employer notifications intentionally contain no personal details until the
+    // trainee has enabled sharing in their profile.
+    if (user.role === 'STUDENT') {
+      const recipients = await prisma.user.findMany({
+        where: { role: { in: ['INDUSTRY', 'PLACEMENT_CELL'] }, isActive: true },
+        select: { id: true, role: true },
+      });
+      if (recipients.length) {
+        await prisma.notification.createMany({
+          data: recipients.map((recipient) => ({
+            userId: recipient.id,
+            title: recipient.role === 'PLACEMENT_CELL' ? 'New trainee registered' : 'New trainee joined Kaarya',
+            body: recipient.role === 'PLACEMENT_CELL'
+              ? 'A new trainee account and outcome profile are available in the government workspace.'
+              : 'A new trainee joined Kaarya. Their profile will appear in your workspace after they enable employer sharing and report an employment connection to your company.',
+          })),
+        });
+      }
+    }
 
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name, role: user.role },
@@ -133,7 +174,7 @@ app.post('/api/auth/register', async (req, res) => {
       { expiresIn: '24h' },
     );
 
-    ok(res, { token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar, department: user.department } }, 201);
+    ok(res, { token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar, department: user.department, collegeName: user.collegeName, companyName: user.companyName, designation: user.designation, phone: user.phone, admissionNumber: user.admissionNumber } }, 201);
   } catch (err: any) {
     fail(res, 400, 'VALIDATION_ERROR', err.message || 'Unable to register user');
   }
@@ -149,13 +190,13 @@ app.post('/api/auth/login', async (req, res) => {
 
     const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-      return fail(res, 401, 'INVALID_CREDENTIALS', 'Incorrect email or password');
+      return fail(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password');
     }
 
     if (role && role.toUpperCase() !== user.role.toUpperCase()) {
       if (!(role.toUpperCase() === 'PLACEMENT_CELL' && user.role.toUpperCase() === 'INSTITUTION') &&
           !(role.toUpperCase() === 'INSTITUTION' && user.role.toUpperCase() === 'PLACEMENT_CELL')) {
-        return fail(res, 403, 'ROLE_MISMATCH', `Account is registered as ${user.role}, but tried logging in as ${role}`);
+    return fail(res, 403, 'ROLE_MISMATCH', 'Invalid email or password');
       }
     }
 
@@ -223,6 +264,24 @@ app.patch('/api/auth/profile', auth, async (req: any, res) => {
     ok(res, safeUser);
   } catch (err: any) {
     fail(res, 400, 'UPDATE_ERROR', err.message);
+  }
+});
+
+app.patch('/api/auth/password', auth, async (req: any, res) => {
+  try {
+    const { currentPassword, newPassword } = z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(8),
+    }).parse(req.body);
+    const user = await prisma.user.findUnique({ where: { id: req.auth.id } });
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      return fail(res, 401, 'INVALID_PASSWORD', 'Current password is incorrect');
+    }
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 10) } });
+    await audit(user.id, 'PASSWORD_UPDATED', 'User', user.id);
+    ok(res, { updated: true });
+  } catch (err: any) {
+    fail(res, 400, 'PASSWORD_UPDATE_ERROR', err.message || 'Unable to update password');
   }
 });
 
@@ -1331,6 +1390,593 @@ app.get('/api/certificates/verify/:certificateId', async (req, res) => {
 // --------------------------------------------------------------------------
 // 10. NOTIFICATIONS & HEALTH
 // --------------------------------------------------------------------------
+const outcomeDto = (record: any) => {
+  const latestVerification = record.verifications?.[0];
+  const employerConfirmed = latestVerification?.status === 'VERIFIED';
+  const parseList = (value: string | null | undefined) => {
+    try {
+      const parsed = JSON.parse(value || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+  return {
+    id: record.publicId,
+    name: record.name,
+    initials: record.initials,
+    city: record.city,
+    district: record.district,
+    course: record.course,
+    provider: record.provider,
+    courseDuration: record.courseDuration,
+    education: record.education,
+    skills: parseList(record.skills),
+    industrySkills: parseList(record.industrySkills),
+    certificateName: record.certificateName,
+    assessmentScore: record.assessmentScore,
+    trained: new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(record.trainedAt),
+    trainedAtIso: record.trainedAt.toISOString(),
+    joinedAt: (employerConfirmed ? latestVerification.joinedAt || record.joinedAt : record.joinedAt) ? new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }).format(employerConfirmed ? latestVerification.joinedAt || record.joinedAt : record.joinedAt) : '',
+    joinedAtIso: (employerConfirmed ? latestVerification.joinedAt || record.joinedAt : record.joinedAt)?.toISOString() || '',
+    employer: record.employerName || '',
+    role: employerConfirmed ? (latestVerification.roleConfirmed || record.jobRole || '') : (record.jobRole || ''),
+    wage: employerConfirmed ? (latestVerification.monthlyWage ?? record.monthlyWage ?? 0) : (record.monthlyWage || 0),
+    reportedRole: record.jobRole || '',
+    reportedWage: record.monthlyWage || 0,
+    verifiedRole: employerConfirmed ? (latestVerification.roleConfirmed || '') : '',
+    verifiedWage: employerConfirmed ? (latestVerification.monthlyWage ?? 0) : 0,
+    status: record.employmentStatus,
+    followup: record.followUps?.[0]?.status === 'COMPLETED' ? 'Completed' : record.followUps?.[0] ? 'Scheduled' : 'Not scheduled',
+    consent: record.consentActive,
+    gender: record.gender,
+    age: record.age,
+    phone: record.phoneMasked,
+    verified: latestVerification?.status === 'VERIFIED',
+    verificationDate: latestVerification?.verifiedAt?.toISOString() || latestVerification?.createdAt?.toISOString() || '',
+    retention: record.retentionMonths ? `${record.retentionMonths} months` : '-',
+    change: record.wageChange,
+    wageHistory: (record.wageSnapshots || []).map((snapshot: any) => ({
+      wage: snapshot.monthlyWage,
+      employer: snapshot.employerName || '',
+      role: snapshot.jobRole || '',
+      status: snapshot.employmentStatus,
+      date: snapshot.effectiveAt,
+      source: snapshot.source,
+    })),
+  };
+};
+
+app.get('/api/outcomes/trainees', auth, async (req: any, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.auth.id } });
+    if (!user) return fail(res, 401, 'UNAUTHORIZED', 'Account not found');
+
+    let where: any = {};
+    if (user.role === 'STUDENT') where = { linkedUserId: user.id };
+    else if (user.role === 'INDUSTRY') where = { employerName: user.companyName || '__no_company__', consentActive: true };
+    else if (user.role === 'INSTITUTION') where = { provider: user.collegeName || '__no_provider__' };
+    else if (!['PLACEMENT_CELL'].includes(user.role)) return fail(res, 403, 'FORBIDDEN', 'This role cannot view outcome records');
+
+    const records = await prisma.outcomeTrainee.findMany({
+      where,
+      include: {
+        linkedUser: { select: { email: true, phone: true } },
+        verifications: { orderBy: { createdAt: 'desc' }, take: 1 },
+        followUps: { orderBy: { scheduledAt: 'desc' }, take: 1 },
+        wageSnapshots: { where: user.role === 'STUDENT' ? {} : { visibleToEmployer: true }, orderBy: { effectiveAt: 'asc' } },
+      },
+      orderBy: { trainedAt: 'desc' },
+    });
+    ok(res, records.map((record) => ({
+      ...outcomeDto(record),
+      contactEmail: user.role === 'STUDENT' || user.role === 'PLACEMENT_CELL' || (user.role === 'INDUSTRY' && record.consentActive) ? record.linkedUser?.email : undefined,
+      contactPhone: user.role === 'STUDENT' || user.role === 'PLACEMENT_CELL' || (user.role === 'INDUSTRY' && record.consentActive) ? record.linkedUser?.phone : undefined,
+    })));
+  } catch (err: any) {
+    fail(res, 500, 'OUTCOME_READ_ERROR', err.message || 'Unable to load outcome records');
+  }
+});
+
+app.patch('/api/outcomes/trainees/:publicId/profile', auth, allow('STUDENT'), async (req: any, res) => {
+  try {
+    const input = z.object({
+      name: z.string().min(2).max(120).optional(),
+      city: z.string().min(2).max(120).optional(),
+      district: z.string().min(2).max(120).optional(),
+      education: z.string().max(180).optional(),
+      phone: z.string().max(40).optional(),
+      skills: z.array(z.string().min(1).max(80)).max(30).optional(),
+    }).refine((data) => Object.keys(data).length > 0, 'Provide at least one profile field to update').parse(req.body);
+    const trainee = await prisma.outcomeTrainee.findUnique({ where: { publicId: req.params.publicId } });
+    if (!trainee || trainee.linkedUserId !== req.auth.id) return fail(res, 404, 'NOT_FOUND', 'Outcome profile not found');
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.outcomeTrainee.update({
+        where: { id: trainee.id },
+        data: {
+          name: input.name,
+          initials: input.name ? input.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toUpperCase() : undefined,
+          city: input.city,
+          district: input.district,
+          education: input.education,
+          phoneMasked: input.phone,
+          skills: input.skills ? JSON.stringify(input.skills) : undefined,
+        },
+      });
+      if (input.name !== undefined || input.phone !== undefined) {
+        await tx.user.update({ where: { id: req.auth.id }, data: { name: input.name, phone: input.phone } });
+      }
+      return tx.outcomeTrainee.findUniqueOrThrow({
+        where: { id: trainee.id },
+        include: { verifications: { orderBy: { createdAt: 'desc' }, take: 1 }, followUps: { orderBy: { scheduledAt: 'desc' }, take: 1 }, wageSnapshots: { orderBy: { effectiveAt: 'asc' } } },
+      });
+    });
+    await audit(req.auth.id, 'TRAINEE_PROFILE_UPDATED', 'OutcomeTrainee', trainee.id, { fields: Object.keys(input) });
+    const profileRecipients = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        OR: [
+          { role: 'PLACEMENT_CELL' },
+          ...(updated.consentActive && updated.employerName ? [{ role: 'INDUSTRY', companyName: updated.employerName }] : []),
+        ],
+      },
+      select: { id: true, role: true },
+    });
+    if (profileRecipients.length) {
+      await prisma.notification.createMany({
+        data: profileRecipients.map((recipient) => ({
+          userId: recipient.id,
+          title: recipient.role === 'PLACEMENT_CELL' ? 'Trainee profile updated' : 'Consented trainee profile updated',
+          body: recipient.role === 'PLACEMENT_CELL'
+            ? `${updated.name} updated their trainee profile.`
+            : `${updated.name} updated their profile and has enabled employer sharing.`,
+        })),
+      });
+    }
+    ok(res, { ...outcomeDto(updated), contactEmail: (await prisma.user.findUnique({ where: { id: req.auth.id }, select: { email: true } }))?.email, contactPhone: input.phone || null });
+  } catch (err: any) {
+    fail(res, 400, 'PROFILE_UPDATE_ERROR', err.message || 'Unable to update trainee profile');
+  }
+});
+
+app.get('/api/outcomes/trainee/career', auth, allow('STUDENT'), async (req: any, res) => {
+  try {
+    const trainee = await prisma.outcomeTrainee.findUnique({
+      where: { linkedUserId: req.auth.id },
+      include: {
+        wageSnapshots: { orderBy: { effectiveAt: 'asc' } },
+        verifications: { orderBy: { createdAt: 'asc' } },
+        followUps: { orderBy: { scheduledAt: 'desc' }, take: 12 },
+      },
+    });
+    if (!trainee) return fail(res, 404, 'NOT_FOUND', 'Outcome profile not found');
+    ok(res, {
+      profile: outcomeDto(trainee),
+      wageHistory: trainee.wageSnapshots.map((snapshot) => ({ wage: snapshot.monthlyWage, role: snapshot.jobRole, employer: snapshot.employerName, status: snapshot.employmentStatus, date: snapshot.effectiveAt, source: snapshot.source })),
+      verificationHistory: trainee.verifications.map((item) => ({ status: item.status, role: item.roleConfirmed, date: item.createdAt, verifiedAt: item.verifiedAt })),
+      followUps: trainee.followUps.map((item) => ({ id: item.id, type: item.type, channel: item.channel, scheduledAt: item.scheduledAt, status: item.status, response: item.response })),
+    });
+  } catch (err: any) {
+    fail(res, 500, 'CAREER_READ_ERROR', err.message || 'Unable to load career progress');
+  }
+});
+
+app.get('/api/outcomes/follow-ups', auth, async (req: any, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.auth.id } });
+    if (!user) return fail(res, 401, 'UNAUTHORIZED', 'Account not found');
+
+    let traineeWhere: any = {};
+    if (user.role === 'STUDENT') traineeWhere = { linkedUserId: user.id };
+    else if (user.role === 'INSTITUTION') traineeWhere = { provider: user.collegeName || '__no_provider__' };
+    else if (user.role !== 'PLACEMENT_CELL') return fail(res, 403, 'FORBIDDEN', 'This role cannot view follow-ups');
+
+    const items = await prisma.outcomeFollowUp.findMany({
+      where: { trainee: traineeWhere },
+      include: { trainee: true },
+      orderBy: [{ status: 'asc' }, { scheduledAt: 'asc' }],
+    });
+    ok(res, items.map((item) => ({
+      id: item.id,
+      traineeId: item.trainee.publicId,
+      name: item.trainee.name,
+      initials: item.trainee.initials,
+      type: item.type,
+      channel: item.channel,
+      due: item.scheduledAt.toISOString(),
+      state: item.status,
+      response: item.response,
+    })));
+  } catch (err: any) {
+    fail(res, 500, 'FOLLOW_UP_READ_ERROR', err.message || 'Unable to load follow-ups');
+  }
+});
+
+app.post('/api/outcomes/follow-ups', auth, allow('INSTITUTION', 'PLACEMENT_CELL'), async (req: any, res) => {
+  try {
+    const input = z.object({
+      traineeId: z.string().min(1),
+      type: z.string().min(2),
+      channel: z.enum(['WhatsApp', 'Phone call', 'SMS', 'Assisted in-person']),
+      scheduledAt: z.coerce.date().optional(),
+    }).parse(req.body);
+    const [user, trainee] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.auth.id } }),
+      prisma.outcomeTrainee.findUnique({ where: { publicId: input.traineeId } }),
+    ]);
+    if (!user || !trainee) return fail(res, 404, 'NOT_FOUND', 'Trainee record not found');
+    if (user.role === 'INSTITUTION' && trainee.provider !== user.collegeName) return fail(res, 403, 'FORBIDDEN', 'This trainee belongs to another provider');
+    if (!trainee.consentActive) return fail(res, 409, 'CONSENT_REQUIRED', 'The trainee has not consented to follow-up contact');
+
+    const item = await prisma.outcomeFollowUp.create({
+      data: {
+        outcomeTraineeId: trainee.id,
+        type: input.type,
+        channel: input.channel,
+        scheduledAt: input.scheduledAt || new Date(Date.now() + 24 * 60 * 60 * 1000),
+        createdById: user.id,
+      },
+    });
+    await audit(user.id, 'OUTCOME_FOLLOW_UP_SCHEDULED', 'OutcomeFollowUp', item.id, { traineeId: trainee.publicId, channel: item.channel });
+    ok(res, { id: item.id, traineeId: trainee.publicId, type: item.type, channel: item.channel, due: item.scheduledAt.toISOString(), state: item.status }, 201);
+  } catch (err: any) {
+    fail(res, 400, 'FOLLOW_UP_CREATE_ERROR', err.message || 'Unable to schedule follow-up');
+  }
+});
+
+app.patch('/api/outcomes/follow-ups/:id/status', auth, allow('INSTITUTION', 'PLACEMENT_CELL'), async (req: any, res) => {
+  try {
+    const { status } = z.object({ status: z.enum(['COMPLETED', 'CANCELLED']) }).parse(req.body);
+    const user = await prisma.user.findUnique({ where: { id: req.auth.id } });
+    const item = await prisma.outcomeFollowUp.findUnique({ where: { id: req.params.id }, include: { trainee: true } });
+    if (!user || !item) return fail(res, 404, 'NOT_FOUND', 'Follow-up not found');
+    if (user.role === 'INSTITUTION' && item.trainee.provider !== user.collegeName) return fail(res, 403, 'FORBIDDEN', 'This follow-up belongs to another provider');
+    const updated = await prisma.outcomeFollowUp.update({ where: { id: item.id }, data: { status } });
+    await audit(user.id, 'OUTCOME_FOLLOW_UP_STATUS_UPDATED', 'OutcomeFollowUp', item.id, { status });
+    ok(res, { id: updated.id, status: updated.status });
+  } catch (err: any) {
+    fail(res, 400, 'FOLLOW_UP_UPDATE_ERROR', err.message || 'Unable to update follow-up');
+  }
+});
+
+app.patch('/api/outcomes/follow-ups/:id/response', auth, allow('STUDENT'), async (req: any, res) => {
+  try {
+    const { response } = z.object({ response: z.string().min(2).max(2000) }).parse(req.body);
+    const item = await prisma.outcomeFollowUp.findUnique({ where: { id: req.params.id }, include: { trainee: true } });
+    if (!item || item.trainee.linkedUserId !== req.auth.id) return fail(res, 404, 'NOT_FOUND', 'Follow-up not found');
+    const updated = await prisma.outcomeFollowUp.update({ where: { id: item.id }, data: { response, status: 'COMPLETED' } });
+    await audit(req.auth.id, 'OUTCOME_FOLLOW_UP_RESPONDED', 'OutcomeFollowUp', item.id);
+    let nextCheckIn = null;
+    if (item.trainee.consentActive) {
+      const scheduledAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+      nextCheckIn = await prisma.outcomeFollowUp.create({
+        data: {
+          outcomeTraineeId: item.trainee.id,
+          type: 'Quarterly low-burden check-in',
+          channel: item.trainee.preferredChannel,
+          scheduledAt,
+          createdById: item.createdById,
+        },
+      });
+      await prisma.notification.create({
+        data: { userId: req.auth.id, title: 'Next check-in scheduled', body: `A short check-in is planned for ${scheduledAt.toLocaleDateString()}. You can change your preferences or pause follow-ups at any time.` },
+      });
+    }
+    ok(res, {
+      id: updated.id,
+      status: updated.status,
+      response: updated.response,
+      nextCheckIn: nextCheckIn ? { id: nextCheckIn.id, traineeId: item.trainee.publicId, type: nextCheckIn.type, channel: nextCheckIn.channel, due: nextCheckIn.scheduledAt.toISOString(), state: nextCheckIn.status } : null,
+    });
+  } catch (err: any) {
+    fail(res, 400, 'FOLLOW_UP_RESPONSE_ERROR', err.message || 'Unable to submit response');
+  }
+});
+
+app.post('/api/outcomes/trainees/:publicId/verify', auth, allow('INDUSTRY', 'PLACEMENT_CELL'), async (req: any, res) => {
+  try {
+    const input = z.object({ role: z.string().min(2).optional(), monthlyWage: z.number().int().positive().optional(), note: z.string().max(1000).optional() }).parse(req.body);
+    const [user, trainee] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.auth.id } }),
+      prisma.outcomeTrainee.findUnique({ where: { publicId: req.params.publicId } }),
+    ]);
+    if (!user || !trainee) return fail(res, 404, 'NOT_FOUND', 'Employment record not found');
+    if (!trainee.consentActive) return fail(res, 403, 'CONSENT_REQUIRED', 'The trainee has paused employer sharing');
+    if (user.role === 'INDUSTRY' && trainee.employerName !== user.companyName) {
+      return fail(res, 403, 'FORBIDDEN', 'This employment record belongs to another employer');
+    }
+    if (user.role === 'INDUSTRY') {
+      const settings = await prisma.employerWorkspaceSetting.findUnique({ where: { userId: user.id } });
+      if (settings?.allowWageVerification === false) return fail(res, 403, 'PERMISSION_DENIED', 'Your workspace is not permitted to verify employment details');
+    }
+    const latestEmployerEvent = await prisma.outcomeEmploymentVerification.findFirst({
+      where: { outcomeTraineeId: trainee.id, employerUserId: user.id },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (latestEmployerEvent?.status === 'VERIFIED') return fail(res, 409, 'ALREADY_VERIFIED', 'This employment record is already verified');
+    const pendingRequest = latestEmployerEvent?.status === 'PENDING' ? latestEmployerEvent : null;
+    const confirmedRole = input.role || pendingRequest?.roleConfirmed || trainee.jobRole;
+    const confirmedWage = input.monthlyWage ?? pendingRequest?.monthlyWage ?? trainee.monthlyWage;
+    const confirmedJoinedAt = pendingRequest?.joinedAt || trainee.joinedAt;
+    const verifiedAt = new Date();
+    const verification = await prisma.$transaction(async (tx) => {
+      const created = await tx.outcomeEmploymentVerification.create({
+        data: {
+          outcomeTraineeId: trainee.id,
+          employerUserId: user.id,
+          roleConfirmed: confirmedRole,
+          monthlyWage: confirmedWage,
+          joinedAt: confirmedJoinedAt,
+          status: 'VERIFIED',
+          note: input.note || pendingRequest?.note,
+          verifiedAt,
+        },
+      });
+      if (confirmedWage && confirmedWage > 0) {
+        await tx.outcomeWageSnapshot.create({
+          data: {
+            outcomeTraineeId: trainee.id,
+            monthlyWage: confirmedWage,
+            employerName: trainee.employerName,
+            jobRole: confirmedRole,
+            employmentStatus: trainee.employmentStatus,
+            effectiveAt: verifiedAt,
+            source: 'EMPLOYER_VERIFIED',
+            visibleToEmployer: trainee.consentActive,
+          },
+        });
+      }
+      return created;
+    });
+    await audit(user.id, 'EMPLOYMENT_VERIFIED', 'OutcomeEmploymentVerification', verification.id, { traineeId: trainee.publicId });
+    if (trainee.linkedUserId) {
+      const confirmer = user.role === 'INDUSTRY' ? (user.companyName || 'Your employer') : `${user.name} from the programme team`;
+      await prisma.notification.create({
+        data: { userId: trainee.linkedUserId, title: user.role === 'INDUSTRY' ? 'Employer confirmed your work details' : 'Programme team confirmed your work details', body: `${confirmer} confirmed your reported ${verification.roleConfirmed || 'employment'} details.` },
+      });
+    }
+    if (user.role === 'INDUSTRY') {
+      const governmentUsers = await prisma.user.findMany({ where: { role: 'PLACEMENT_CELL', isActive: true }, select: { id: true } });
+      if (governmentUsers.length) await prisma.notification.createMany({
+        data: governmentUsers.map((governmentUser) => ({
+          userId: governmentUser.id,
+          title: 'Employment record verified',
+          body: `${trainee.name}'s employment at ${user.companyName || 'an employer'} was confirmed.`,
+        })),
+      });
+    }
+    ok(res, { id: verification.id, traineeId: trainee.publicId, status: verification.status, role: verification.roleConfirmed, monthlyWage: verification.monthlyWage, joinedAt: verification.joinedAt, verifiedAt: verification.verifiedAt }, 201);
+  } catch (err: any) {
+    fail(res, 400, 'VERIFICATION_ERROR', err.message || 'Unable to verify employment');
+  }
+});
+
+app.post('/api/outcomes/trainees/:publicId/employment-update-requests', auth, allow('INDUSTRY'), async (req: any, res) => {
+  try {
+    const input = z.object({
+      role: z.string().min(2).max(160).optional(),
+      monthlyWage: z.number().int().positive().optional(),
+      joinedAt: z.coerce.date().optional(),
+      note: z.string().max(1000).optional(),
+    }).refine((data) => data.role || data.monthlyWage || data.joinedAt, 'At least one employment detail must be provided').parse(req.body);
+    const [user, trainee, settings] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.auth.id } }),
+      prisma.outcomeTrainee.findUnique({ where: { publicId: req.params.publicId } }),
+      prisma.employerWorkspaceSetting.findUnique({ where: { userId: req.auth.id } }),
+    ]);
+    if (!user || !trainee) return fail(res, 404, 'NOT_FOUND', 'Employment record not found');
+    if (trainee.employerName !== user.companyName) return fail(res, 403, 'FORBIDDEN', 'This employment record belongs to another employer');
+    if (!trainee.consentActive || settings?.allowWageVerification === false) return fail(res, 403, 'PERMISSION_DENIED', 'Your workspace is not permitted to submit employment updates for this trainee');
+    const request = await prisma.outcomeEmploymentVerification.create({
+      data: {
+        outcomeTraineeId: trainee.id,
+        employerUserId: user.id,
+        roleConfirmed: input.role,
+        monthlyWage: input.monthlyWage,
+        joinedAt: input.joinedAt,
+        status: 'PENDING',
+        note: input.note,
+      },
+    });
+    await audit(user.id, 'EMPLOYMENT_UPDATE_REQUESTED', 'OutcomeEmploymentVerification', request.id, { traineeId: trainee.publicId });
+    if (trainee.linkedUserId) {
+      await prisma.notification.create({
+        data: { userId: trainee.linkedUserId, title: 'Employer requested an employment update', body: `${user.companyName || 'Your employer'} requested a review of your work details. Your reported information will not change unless you choose to update it.` },
+      });
+    }
+    ok(res, { id: request.id, traineeId: trainee.publicId, status: request.status, createdAt: request.createdAt }, 201);
+  } catch (err: any) {
+    fail(res, 400, 'EMPLOYMENT_UPDATE_REQUEST_ERROR', err.message || 'Unable to submit employment update');
+  }
+});
+
+app.get('/api/outcomes/verifications', auth, allow('INDUSTRY', 'PLACEMENT_CELL'), async (req: any, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.auth.id } });
+    if (!user) return fail(res, 401, 'UNAUTHORIZED', 'Account not found');
+    const items = await prisma.outcomeEmploymentVerification.findMany({
+      where: user.role === 'INDUSTRY' ? { employerUserId: user.id } : {},
+      include: { trainee: true, employer: { select: { name: true, companyName: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+    ok(res, items.map((item) => ({
+      id: item.id,
+      traineeId: item.trainee.publicId,
+      traineeName: item.trainee.name,
+      employer: item.employer.companyName,
+      employerContact: item.employer.name,
+      role: item.roleConfirmed,
+      monthlyWage: item.monthlyWage,
+      joinedAt: item.joinedAt,
+      status: item.status,
+      note: item.note,
+      createdAt: item.createdAt,
+      verifiedAt: item.verifiedAt,
+    })));
+  } catch (err: any) {
+    fail(res, 500, 'VERIFICATION_HISTORY_ERROR', err.message || 'Unable to load verification history');
+  }
+});
+
+app.get('/api/employer/settings', auth, allow('INDUSTRY'), async (req: any, res) => {
+  try {
+    const [user, settings] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.auth.id }, select: { name: true, email: true, companyName: true, designation: true, phone: true } }),
+      prisma.employerWorkspaceSetting.upsert({ where: { userId: req.auth.id }, update: {}, create: { userId: req.auth.id } }),
+    ]);
+    if (!user) return fail(res, 404, 'NOT_FOUND', 'Employer account not found');
+    ok(res, { ...user, preferences: { allowFollowUpRequests: settings.allowFollowUpRequests, allowWageVerification: settings.allowWageVerification, shareAggregateOutcomes: settings.shareAggregateOutcomes } });
+  } catch (err: any) {
+    fail(res, 500, 'EMPLOYER_SETTINGS_ERROR', err.message || 'Unable to load employer settings');
+  }
+});
+
+app.patch('/api/employer/settings', auth, allow('INDUSTRY'), async (req: any, res) => {
+  try {
+    const input = z.object({
+      name: z.string().min(2).optional(),
+      companyName: z.string().min(2).optional(),
+      designation: z.string().max(120).optional(),
+      phone: z.string().max(40).optional(),
+      allowFollowUpRequests: z.boolean().optional(),
+      allowWageVerification: z.boolean().optional(),
+      shareAggregateOutcomes: z.boolean().optional(),
+    }).parse(req.body);
+    const profileData = Object.fromEntries(['name', 'companyName', 'designation', 'phone'].filter((key) => input[key as keyof typeof input] !== undefined).map((key) => [key, input[key as keyof typeof input]]));
+    const preferenceData = Object.fromEntries(['allowFollowUpRequests', 'allowWageVerification', 'shareAggregateOutcomes'].filter((key) => input[key as keyof typeof input] !== undefined).map((key) => [key, input[key as keyof typeof input]]));
+    if (Object.keys(profileData).length) {
+      const existingUser = await prisma.user.findUnique({ where: { id: req.auth.id }, select: { companyName: true } });
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id: req.auth.id }, data: profileData });
+        if (input.companyName && existingUser?.companyName && input.companyName !== existingUser.companyName) {
+          await tx.outcomeTrainee.updateMany({ where: { employerName: existingUser.companyName }, data: { employerName: input.companyName } });
+        }
+      });
+    }
+    const preferences = Object.keys(preferenceData).length
+      ? await prisma.employerWorkspaceSetting.upsert({ where: { userId: req.auth.id }, update: preferenceData, create: { userId: req.auth.id, ...preferenceData } })
+      : await prisma.employerWorkspaceSetting.findUnique({ where: { userId: req.auth.id } });
+    await audit(req.auth.id, 'EMPLOYER_SETTINGS_UPDATED', 'User', req.auth.id, { profileFields: Object.keys(profileData), preferenceFields: Object.keys(preferenceData) });
+    ok(res, { saved: true, preferences });
+  } catch (err: any) {
+    fail(res, 400, 'EMPLOYER_SETTINGS_UPDATE_ERROR', err.message || 'Unable to save employer settings');
+  }
+});
+
+app.patch('/api/outcomes/trainees/:publicId/employment', auth, allow('STUDENT', 'PLACEMENT_CELL'), async (req: any, res) => {
+  try {
+    const input = z.object({
+      employmentStatus: z.enum(['Employed', 'Self-employed', 'Apprentice', 'Seeking work']),
+      employerName: z.string().max(160).optional(),
+      jobRole: z.string().max(160).optional(),
+      monthlyWage: z.number().int().nonnegative().optional(),
+      joinedAt: z.coerce.date().nullable().optional(),
+    }).parse(req.body);
+    const [user, trainee] = await Promise.all([
+      prisma.user.findUnique({ where: { id: req.auth.id } }),
+      prisma.outcomeTrainee.findUnique({ where: { publicId: req.params.publicId } }),
+    ]);
+    if (!user || !trainee) return fail(res, 404, 'NOT_FOUND', 'Outcome profile not found');
+    if (user.role === 'STUDENT' && trainee.linkedUserId !== user.id) return fail(res, 403, 'FORBIDDEN', 'You can only update your own outcome profile');
+    const employmentChanged = input.employmentStatus !== trainee.employmentStatus ||
+      (input.employerName !== undefined && input.employerName !== trainee.employerName) ||
+      (input.jobRole !== undefined && input.jobRole !== trainee.jobRole) ||
+      (input.monthlyWage !== undefined && input.monthlyWage !== trainee.monthlyWage);
+    const updated = await prisma.$transaction(async (tx) => {
+      const profile = await tx.outcomeTrainee.update({ where: { id: trainee.id }, data: input });
+      if (employmentChanged && (input.monthlyWage ?? profile.monthlyWage ?? 0) >= 0) {
+        await tx.outcomeEmploymentVerification.updateMany({
+          where: { outcomeTraineeId: trainee.id, status: { in: ['VERIFIED', 'PENDING'] } },
+          data: { status: 'SUPERSEDED' },
+        });
+        await tx.outcomeWageSnapshot.create({
+          data: {
+            outcomeTraineeId: trainee.id,
+            monthlyWage: input.monthlyWage ?? profile.monthlyWage ?? 0,
+            employerName: input.employerName ?? profile.employerName,
+            jobRole: input.jobRole ?? profile.jobRole,
+            employmentStatus: input.employmentStatus,
+            source: user.role === 'STUDENT' ? 'TRAINEE_REPORTED' : 'PROGRAMME_REPORTED',
+            visibleToEmployer: trainee.consentActive,
+          },
+        });
+      }
+      return tx.outcomeTrainee.findUniqueOrThrow({
+        where: { id: trainee.id },
+        include: {
+          verifications: { orderBy: { createdAt: 'desc' }, take: 1 },
+          followUps: { orderBy: { scheduledAt: 'desc' }, take: 1 },
+          wageSnapshots: { where: user.role === 'STUDENT' ? {} : { visibleToEmployer: true }, orderBy: { effectiveAt: 'asc' } },
+        },
+      });
+    });
+    await audit(user.id, 'OUTCOME_EMPLOYMENT_UPDATED', 'OutcomeTrainee', trainee.id, { employmentStatus: input.employmentStatus });
+    if (user.role === 'STUDENT' && trainee.consentActive && updated.employerName && employmentChanged) {
+      const employerUsers = await prisma.user.findMany({ where: { role: 'INDUSTRY', companyName: updated.employerName }, select: { id: true } });
+      await Promise.all(employerUsers.map((employerUser) => prisma.notification.create({
+        data: {
+          userId: employerUser.id,
+          title: 'Trainee shared an employment update',
+          body: `${trainee.name} shared a consented work-status update for ${updated.employerName}. Open the employer portal to review permitted details.`,
+        },
+      })));
+    }
+    if (user.role === 'STUDENT' && employmentChanged) {
+      const governmentUsers = await prisma.user.findMany({ where: { role: 'PLACEMENT_CELL', isActive: true }, select: { id: true } });
+      if (governmentUsers.length) await prisma.notification.createMany({
+        data: governmentUsers.map((governmentUser) => ({
+          userId: governmentUser.id,
+          title: 'Trainee employment record updated',
+          body: `${updated.name} updated their employment details${trainee.consentActive ? '.' : ' (employer sharing remains paused).'} `,
+        })),
+      });
+    }
+    ok(res, outcomeDto({ ...updated, verifications: [], followUps: [] }));
+  } catch (err: any) {
+    fail(res, 400, 'EMPLOYMENT_UPDATE_ERROR', err.message || 'Unable to update employment details');
+  }
+});
+
+app.patch('/api/outcomes/trainees/:publicId/consent', auth, allow('STUDENT'), async (req: any, res) => {
+  try {
+    const { consentActive, preferredChannel } = z.object({
+      consentActive: z.boolean(),
+      preferredChannel: z.enum(['WhatsApp', 'Phone call', 'SMS', 'Assisted in-person']).optional(),
+    }).parse(req.body);
+    const trainee = await prisma.outcomeTrainee.findUnique({ where: { publicId: req.params.publicId } });
+    if (!trainee || trainee.linkedUserId !== req.auth.id) return fail(res, 404, 'NOT_FOUND', 'Outcome profile not found');
+    const updated = await prisma.outcomeTrainee.update({ where: { id: trainee.id }, data: { consentActive, preferredChannel } });
+    await audit(req.auth.id, 'OUTCOME_CONSENT_UPDATED', 'OutcomeTrainee', trainee.id, { consentActive, preferredChannel });
+    const employerUsers = await prisma.user.findMany({
+      where: {
+        role: 'INDUSTRY',
+        isActive: true,
+        ...(trainee.employerName ? { companyName: trainee.employerName } : consentActive ? {} : { id: '__no_matching_employer__' }),
+      },
+      select: { id: true },
+    });
+    const governmentUsers = await prisma.user.findMany({ where: { role: 'PLACEMENT_CELL', isActive: true }, select: { id: true } });
+    const consentNotifications = [
+      ...employerUsers.map((recipient) => ({
+        userId: recipient.id,
+        title: consentActive ? 'Trainee enabled employment sharing' : 'Trainee changed data-sharing consent',
+        body: consentActive
+          ? `${trainee.name} enabled employer sharing. Permitted profile details are available in your workspace.`
+          : `${trainee.name} paused employer sharing. Individual outcome details are no longer available in your workspace.`,
+      })),
+      ...governmentUsers.map((recipient) => ({
+        userId: recipient.id,
+        title: 'Trainee data-sharing preference updated',
+        body: `${trainee.name} ${consentActive ? 'enabled' : 'paused'} employer sharing.`,
+      })),
+    ];
+    if (consentNotifications.length) await prisma.notification.createMany({ data: consentNotifications });
+    ok(res, { id: updated.publicId, consentActive: updated.consentActive, preferredChannel: updated.preferredChannel });
+  } catch (err: any) {
+    fail(res, 400, 'CONSENT_UPDATE_ERROR', err.message || 'Unable to save consent preferences');
+  }
+});
+
 app.get('/api/notifications', auth, async (req: any, res) => {
   try {
     const notifs = await prisma.notification.findMany({
@@ -1356,7 +2002,26 @@ app.patch('/api/notifications/:id/read', auth, async (req: any, res) => {
   }
 });
 
+app.patch('/api/notifications/read-all', auth, async (req: any, res) => {
+  try {
+    const result = await prisma.notification.updateMany({
+      where: { userId: req.auth.id, isRead: false },
+      data: { isRead: true },
+    });
+    ok(res, { updated: result.count });
+  } catch (err: any) {
+    fail(res, 400, 'UPDATE_ERROR', err.message || 'Unable to mark notifications as read');
+  }
+});
+
 app.get('/health', (_req, res) => ok(res, { status: 'healthy', timestamp: new Date().toISOString(), platform: 'Academia-Industry Portal API' }));
+app.use(express.static(path.resolve(process.cwd(), 'dist'), { index: false }));
+app.use((req, res, next) => {
+  if (req.method === 'GET' && !req.path.startsWith('/api/') && req.accepts('html')) {
+    return res.sendFile(path.resolve(process.cwd(), 'dist', 'index.html'));
+  }
+  next();
+});
 app.use((_req, res) => fail(res, 404, 'NOT_FOUND', 'Route not found'));
 
 app.listen(PORT, () => {

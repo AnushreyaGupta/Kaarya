@@ -31,6 +31,10 @@ model User {
   notifications   Notification[]
   auditLogs       AuditLog[]
   portfolio       DigitalPortfolio?
+  outcomeProfile  OutcomeTrainee?
+  outcomeFollowUps OutcomeFollowUp[] @relation("OutcomeFollowUpCreator")
+  employerOutcomeChecks OutcomeEmploymentVerification[] @relation("OutcomeVerificationEmployer")
+  employerSettings EmployerWorkspaceSetting?
 }
 
 model Skill {
@@ -250,4 +254,106 @@ model AuditLog {
   entityId   String
   metadata   String?  // JSON string
   createdAt  DateTime @default(now())
+}
+
+model OutcomeTrainee {
+  id                String   @id @default(uuid())
+  publicId          String   @unique
+  name              String
+  initials          String
+  city              String
+  district          String
+  course            String
+  provider          String
+  courseDuration    String   @default("")
+  education         String   @default("")
+  skills            String   @default("[]")
+  industrySkills    String   @default("[]")
+  certificateName   String?
+  assessmentScore   Float?
+  trainedAt         DateTime
+  employerName      String?
+  jobRole           String?
+  employmentStatus  String   @default("Seeking work")
+  joinedAt          DateTime?
+  monthlyWage       Int?
+  wageChange        Int      @default(0)
+  retentionMonths   Int      @default(0)
+  gender            String
+  age               Int
+  phoneMasked       String
+  consentActive     Boolean  @default(false)
+  preferredChannel  String   @default("WhatsApp")
+  linkedUserId      String?  @unique
+  linkedUser        User?    @relation(fields: [linkedUserId], references: [id])
+  followUps         OutcomeFollowUp[]
+  verifications     OutcomeEmploymentVerification[]
+  wageSnapshots     OutcomeWageSnapshot[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([district, course, employmentStatus])
+  @@index([provider])
+}
+
+model OutcomeFollowUp {
+  id               String        @id @default(uuid())
+  outcomeTraineeId String
+  trainee          OutcomeTrainee @relation(fields: [outcomeTraineeId], references: [id])
+  type             String
+  channel          String
+  scheduledAt      DateTime
+  status           String        @default("SCHEDULED")
+  response         String?
+  createdById      String
+  createdBy        User          @relation("OutcomeFollowUpCreator", fields: [createdById], references: [id])
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([outcomeTraineeId, scheduledAt])
+  @@index([status, scheduledAt])
+}
+
+model OutcomeWageSnapshot {
+  id               String        @id @default(uuid())
+  outcomeTraineeId String
+  trainee          OutcomeTrainee @relation(fields: [outcomeTraineeId], references: [id])
+  monthlyWage      Int
+  employerName     String?
+  jobRole          String?
+  employmentStatus String
+  effectiveAt      DateTime       @default(now())
+  source           String
+  visibleToEmployer Boolean      @default(false)
+  createdAt        DateTime       @default(now())
+
+  @@index([outcomeTraineeId, effectiveAt])
+}
+
+model OutcomeEmploymentVerification {
+  id               String        @id @default(uuid())
+  outcomeTraineeId String
+  trainee          OutcomeTrainee @relation(fields: [outcomeTraineeId], references: [id])
+  employerUserId   String
+  employer         User          @relation("OutcomeVerificationEmployer", fields: [employerUserId], references: [id])
+  roleConfirmed    String?
+  monthlyWage      Int?
+  joinedAt         DateTime?
+  status           String        @default("PENDING")
+  note             String?
+  verifiedAt       DateTime?
+  createdAt        DateTime      @default(now())
+
+  @@index([outcomeTraineeId, status])
+  @@index([employerUserId, status])
+}
+
+model EmployerWorkspaceSetting {
+  id                       String   @id @default(uuid())
+  userId                   String   @unique
+  user                     User     @relation(fields: [userId], references: [id])
+  allowFollowUpRequests    Boolean  @default(true)
+  allowWageVerification    Boolean  @default(true)
+  shareAggregateOutcomes  Boolean  @default(false)
+  updatedAt                DateTime @updatedAt
 }

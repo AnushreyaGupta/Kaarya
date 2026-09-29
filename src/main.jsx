@@ -59,6 +59,7 @@ import "./auth.css";
 import "./avatars.css";
 import "./updates.css";
 import "./calendar.css";
+import "./responsive.css";
 
 // ----------------------------------------------------
 // DYNAMIC DATE HELPERS & DEPARTMENT MATCHING
@@ -947,9 +948,9 @@ function App({ user, logout }) {
       localStorage.setItem(studentApplicationsKey, JSON.stringify([...apps, newApp]));
 
       try {
-        await fetch(`http://localhost:4000/api/opportunities/${selected.id}/apply`, {
+        await fetch(`/api/opportunities/${selected.id}/apply`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${user.token || ""}` },
           body: JSON.stringify(newApp),
         }).catch(() => {});
       } catch {}
@@ -4668,32 +4669,36 @@ function LoginPage({ login }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
+    setError("");
     if (!/^\S+@\S+\.\S+$/.test(email)) return setError("Enter a valid email address.");
     if (password.length < 6) return setError("Password must contain at least 6 characters.");
     if (mode === "register" && name.trim().length < 2) return setError(role === "Industry" ? "Enter your company name." : "Enter your full name.");
 
     const normalizedEmail = email.trim().toLowerCase();
-    if (mode === "register") {
-      const accounts = readStored(registeredUsersKey, []);
-      const existingAccount = accounts.find((item) => item.email === normalizedEmail && item.role === role);
-      if (existingAccount) return setError(`An ${role} account already exists with this email. Please sign in.`);
-
-      const account = { name: name.trim(), email: normalizedEmail, password, role, avatar, admissionNumber };
-      localStorage.setItem(registeredUsersKey, JSON.stringify([...accounts, account]));
+    const apiRole = ({ Student: "STUDENT", Academician: "ACADEMICIAN", Industry: "INDUSTRY", Institute: "PLACEMENT_CELL" })[role];
+    try {
+      const response = await fetch(`/api/auth/${mode === "register" ? "register" : "login"}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(mode === "register"
+          ? { name: name.trim(), email: normalizedEmail, password, role: apiRole, admissionNumber: admissionNumber.trim(), avatar, companyName: role === "Industry" ? name.trim() : undefined, collegeName: role === "Institute" ? name.trim() : undefined }
+          : { email: normalizedEmail, password, role: apiRole }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error?.message || "Unable to sign in. Please try again.");
+      const serverUser = result.data.user;
+      const account = { ...serverUser, role, token: result.data.token, avatar: serverUser.avatar || avatar };
       if (role === "Student") {
-        const studentProfile = { ...defaultStudentProfile(account), admissionNumber: admissionNumber.trim() };
+        const studentProfile = { ...defaultStudentProfile(account), ...serverUser, admissionNumber: admissionNumber.trim() || serverUser.admissionNumber || "" };
         localStorage.setItem(profileKey(account.email), JSON.stringify(studentProfile));
         updateStudentDirectory(account, studentProfile);
       }
-      return login(account);
+      login(account);
+    } catch (err) {
+      setError(err.message || "Could not reach the server. Check that the deployed API is running.");
     }
-
-    const account = readStored(registeredUsersKey, []).find((item) => item.email === normalizedEmail && item.role === role);
-    if (!account) return setError("You are not registered. Create your account to continue.");
-    if (account.password !== password) return setError("Incorrect password. Please try again.");
-    login(account);
   };
 
   return (

@@ -467,7 +467,142 @@ async function main() {
     },
   });
 
-  console.log('Database seeded successfully with all roles, programs, and opportunities!');
+  const outcomeEmployer = await prisma.user.upsert({
+    where: { email: 'people@sungrid.example' },
+    update: { companyName: 'SunGrid Energy', role: 'INDUSTRY' },
+    create: {
+      name: 'Rohan Desai',
+      email: 'people@sungrid.example',
+      passwordHash,
+      role: 'INDUSTRY',
+      companyName: 'SunGrid Energy',
+      designation: 'People Operations',
+      phone: '+91 98900 11223',
+    },
+  });
+
+  const outcomeProvider = await prisma.user.upsert({
+    where: { email: 'admin@udaan.example' },
+    update: { collegeName: 'Udaan Skills Centre', role: 'INSTITUTION' },
+    create: {
+      name: 'Farah Khan',
+      email: 'admin@udaan.example',
+      passwordHash,
+      role: 'INSTITUTION',
+      collegeName: 'Udaan Skills Centre',
+      designation: 'Provider Administrator',
+      phone: '+91 98700 22011',
+    },
+  });
+
+  const outcomeTraineeUser = await prisma.user.upsert({
+    where: { email: 'aarav@trainee.example' },
+    update: { name: 'Aarav Mehta', role: 'STUDENT' },
+    create: {
+      name: 'Aarav Mehta',
+      email: 'aarav@trainee.example',
+      passwordHash,
+      role: 'STUDENT',
+      department: 'Solar PV Installation',
+      collegeName: 'Udaan Skills Centre',
+      phone: '+91 98000 00421',
+    },
+  });
+
+  const outcomeRecords = [
+    { publicId: 'SK-24018', name: 'Aarav Mehta', initials: 'AM', city: 'Pune, Maharashtra', district: 'Pune', course: 'Solar PV Installation', provider: 'Udaan Skills Centre', courseDuration: '420 hours · 14 weeks', education: 'Higher Secondary Certificate', skills: JSON.stringify(['Solar panel installation', 'Electrical safety', 'System commissioning', 'Fault diagnosis', 'Customer handover']), industrySkills: JSON.stringify(['Solar panel installation', 'Electrical safety', 'System commissioning', 'Battery diagnostics', 'Digital maintenance logs']), certificateName: 'NSQF Level 4 Solar PV Installer', assessmentScore: 86, trainedAt: new Date('2025-02-12'), employerName: 'SunGrid Energy', jobRole: 'Solar Technician', employmentStatus: 'Employed', joinedAt: new Date('2026-01-12'), monthlyWage: 18500, wageChange: 18, retentionMonths: 8, gender: 'Male', age: 23, phoneMasked: '+91 98••• ••421', consentActive: true, preferredChannel: 'WhatsApp', linkedUserId: outcomeTraineeUser.id },
+    { publicId: 'SK-24027', name: 'Priya Nair', initials: 'PN', city: 'Kochi, Kerala', district: 'Ernakulam', course: 'Healthcare Assistant', provider: 'Saksham Foundation', trainedAt: new Date('2025-03-04'), employerName: 'Aster Medcity', jobRole: 'Patient Care Assistant', employmentStatus: 'Employed', joinedAt: new Date('2026-03-04'), monthlyWage: 21000, wageChange: 12, retentionMonths: 6, gender: 'Female', age: 25, phoneMasked: '+91 97••• ••856', consentActive: true, preferredChannel: 'WhatsApp' },
+    { publicId: 'SK-24033', name: 'Imran Khan', initials: 'IK', city: 'Jaipur, Rajasthan', district: 'Jaipur', course: 'Retail Sales Associate', provider: 'Kaushal Pragati', trainedAt: new Date('2025-01-19'), employmentStatus: 'Seeking work', wageChange: 0, retentionMonths: 0, gender: 'Male', age: 21, phoneMasked: '+91 99••• ••037', consentActive: true, preferredChannel: 'Phone call' },
+    { publicId: 'SK-24041', name: 'Kavya Reddy', initials: 'KR', city: 'Hyderabad, Telangana', district: 'Hyderabad', course: 'Data Entry & Office Tools', provider: 'Nirmaan Trust', trainedAt: new Date('2025-02-27'), employerName: 'Self-employed', jobRole: 'Freelance Data Operator', employmentStatus: 'Self-employed', joinedAt: new Date('2026-02-27'), monthlyWage: 24000, wageChange: 32, retentionMonths: 7, gender: 'Female', age: 24, phoneMasked: '+91 96••• ••512', consentActive: true, preferredChannel: 'WhatsApp' },
+    { publicId: 'SK-24056', name: 'Sanjay Das', initials: 'SD', city: 'Kolkata, West Bengal', district: 'Kolkata', course: 'Electric Vehicle Service', provider: 'Udaan Skills Centre', trainedAt: new Date('2025-04-10'), employerName: 'SunGrid Energy', jobRole: 'Service Apprentice', employmentStatus: 'Apprentice', joinedAt: new Date('2026-05-10'), monthlyWage: 16000, wageChange: 9, retentionMonths: 4, gender: 'Male', age: 22, phoneMasked: '+91 90••• ••194', consentActive: true, preferredChannel: 'SMS' },
+    { publicId: 'SK-24063', name: 'Meena Kumari', initials: 'MK', city: 'Patna, Bihar', district: 'Patna', course: 'Healthcare Assistant', provider: 'Saksham Foundation', trainedAt: new Date('2025-03-15'), employerName: 'CareWell Clinic', jobRole: 'Care Assistant', employmentStatus: 'Employed', joinedAt: new Date('2026-04-15'), monthlyWage: 17500, wageChange: 15, retentionMonths: 5, gender: 'Female', age: 27, phoneMasked: '+91 91••• ••668', consentActive: true, preferredChannel: 'Phone call' },
+    { publicId: 'SK-24072', name: 'Neha Kulkarni', initials: 'NK', city: 'Pune, Maharashtra', district: 'Pune', course: 'Solar PV Installation', provider: 'Udaan Skills Centre', courseDuration: '', education: '', skills: JSON.stringify(['Solar panel installation', 'Electrical safety', 'Site assessment', 'Customer handover']), industrySkills: JSON.stringify(['Solar panel installation', 'Electrical safety', 'Site assessment', 'Customer handover']), trainedAt: new Date('2025-05-22'), employerName: 'SunGrid Energy', jobRole: 'Solar Installation Associate', employmentStatus: 'Employed', joinedAt: new Date('2025-12-22'), monthlyWage: 22000, wageChange: 19, retentionMonths: 9, gender: 'Female', age: 24, phoneMasked: '+91 98••• ••716', consentActive: true, preferredChannel: 'WhatsApp' },
+    { publicId: 'SK-24081', name: 'Ritesh Yadav', initials: 'RY', city: 'Jaipur, Rajasthan', district: 'Jaipur', course: 'Electric Vehicle Service', provider: 'Udaan Skills Centre', courseDuration: '', education: '', skills: JSON.stringify(['Battery diagnostics', 'Electrical safety', 'Fault diagnosis']), industrySkills: JSON.stringify(['Battery diagnostics', 'Electrical safety', 'Fault diagnosis', 'Digital maintenance logs']), trainedAt: new Date('2025-06-09'), employerName: 'SunGrid Energy', jobRole: 'EV Service Technician', employmentStatus: 'Employed', joinedAt: new Date('2026-03-09'), monthlyWage: 20500, wageChange: 14, retentionMonths: 6, gender: 'Male', age: 26, phoneMasked: '+91 98••• ••608', consentActive: true, preferredChannel: 'Phone call' },
+    { publicId: 'SK-24094', name: 'Farah Siddiqui', initials: 'FS', city: 'Hyderabad, Telangana', district: 'Hyderabad', course: 'Data Entry & Office Tools', provider: 'Nirmaan Trust', courseDuration: '', education: '', skills: JSON.stringify(['Spreadsheet reporting', 'Digital maintenance logs', 'Customer handover']), industrySkills: JSON.stringify(['Spreadsheet reporting', 'Digital maintenance logs', 'Customer handover']), trainedAt: new Date('2025-07-17'), employerName: 'SunGrid Energy', jobRole: 'Operations Coordinator', employmentStatus: 'Employed', joinedAt: new Date('2026-05-17'), monthlyWage: 23000, wageChange: 11, retentionMonths: 4, gender: 'Female', age: 25, phoneMasked: '+91 98••• ••214', consentActive: true, preferredChannel: 'WhatsApp' },
+    { publicId: 'SK-24102', name: 'Dev Patel', initials: 'DP', city: 'Ahmedabad, Gujarat', district: 'Ahmedabad', course: 'Solar PV Installation', provider: 'Udaan Skills Centre', courseDuration: '', education: '', skills: JSON.stringify(['Solar panel installation', 'Electrical safety']), industrySkills: JSON.stringify(['Solar panel installation', 'Electrical safety', 'System commissioning']), trainedAt: new Date('2025-08-02'), employerName: 'SunGrid Energy', jobRole: 'Solar Technician', employmentStatus: 'Apprentice', joinedAt: new Date('2026-07-02'), monthlyWage: 19000, wageChange: 8, retentionMonths: 2, gender: 'Male', age: 22, phoneMasked: '+91 98••• ••482', consentActive: true, preferredChannel: 'SMS' },
+  ];
+
+  for (const record of outcomeRecords) {
+    await prisma.outcomeTrainee.upsert({ where: { publicId: record.publicId }, update: record, create: record });
+  }
+
+  const aaravOutcome = await prisma.outcomeTrainee.findUniqueOrThrow({ where: { publicId: 'SK-24018' } });
+  const wageMilestones = [
+    { id: 'demo-wage-aarav-first-job', monthlyWage: 15700, jobRole: 'Junior Solar Installer', effectiveAt: new Date('2026-01-12'), source: 'EMPLOYER_VERIFIED', visibleToEmployer: true },
+    { id: 'demo-wage-aarav-current', monthlyWage: 18500, jobRole: 'Solar Technician', effectiveAt: new Date('2026-08-12'), source: 'EMPLOYER_VERIFIED', visibleToEmployer: true },
+  ];
+  for (const milestone of wageMilestones) {
+    await prisma.outcomeWageSnapshot.upsert({
+      where: { id: milestone.id },
+      update: milestone,
+      create: { ...milestone, outcomeTraineeId: aaravOutcome.id, employerName: 'SunGrid Energy', employmentStatus: 'Employed' },
+    });
+  }
+
+  await prisma.outcomeEmploymentVerification.upsert({
+    where: { id: 'demo-verification-aarav' },
+    update: {},
+    create: {
+      id: 'demo-verification-aarav',
+      outcomeTraineeId: aaravOutcome.id,
+      employerUserId: outcomeEmployer.id,
+      roleConfirmed: 'Solar Technician',
+      monthlyWage: 18500,
+      joinedAt: new Date('2026-01-12'),
+      status: 'VERIFIED',
+      verifiedAt: new Date('2026-08-12'),
+      note: 'Confirmed by authorised employer contact.',
+    },
+  });
+
+  const sanjayOutcome = await prisma.outcomeTrainee.findUniqueOrThrow({ where: { publicId: 'SK-24056' } });
+  await prisma.outcomeEmploymentVerification.upsert({
+    where: { id: 'demo-verification-sanjay' },
+    update: { status: 'PENDING', verifiedAt: null, createdAt: new Date() },
+    create: {
+      id: 'demo-verification-sanjay',
+      outcomeTraineeId: sanjayOutcome.id,
+      employerUserId: outcomeEmployer.id,
+      roleConfirmed: 'Service Apprentice',
+      monthlyWage: 16000,
+      joinedAt: new Date('2026-05-10'),
+      status: 'PENDING',
+      note: 'Please confirm apprentice role and current wage.',
+    },
+  });
+  await prisma.employerWorkspaceSetting.upsert({
+    where: { userId: outcomeEmployer.id },
+    update: { allowFollowUpRequests: true, allowWageVerification: true, shareAggregateOutcomes: false },
+    create: { userId: outcomeEmployer.id },
+  });
+
+  const employerNotifications = [
+    { title: 'Employment verification requested', body: 'Sanjay Das employment details are ready for confirmation.' },
+    { title: 'New hire outcome available', body: 'Aarav Mehta shared an employment update for SunGrid Energy.' },
+  ];
+  for (const notification of employerNotifications) {
+    const existing = await prisma.notification.findFirst({ where: { userId: outcomeEmployer.id, title: notification.title } });
+    if (!existing) await prisma.notification.create({ data: { ...notification, userId: outcomeEmployer.id } });
+  }
+
+  const demoFollowUps = [
+    { id: 'demo-followup-aarav', publicId: 'SK-24018', type: '6-month check-in', channel: 'WhatsApp', scheduledAt: new Date('2026-09-26T10:30:00.000Z') },
+    { id: 'demo-followup-imran', publicId: 'SK-24033', type: 'Placement support', channel: 'Phone call', scheduledAt: new Date('2026-09-25T09:00:00.000Z') },
+    { id: 'demo-followup-sanjay', publicId: 'SK-24056', type: 'Employer confirmation', channel: 'SMS', scheduledAt: new Date('2026-09-26T14:00:00.000Z') },
+    { id: 'demo-followup-priya', publicId: 'SK-24027', type: '3-month check-in', channel: 'WhatsApp', scheduledAt: new Date('2026-09-29T11:00:00.000Z') },
+  ];
+
+  for (const followUp of demoFollowUps) {
+    const trainee = await prisma.outcomeTrainee.findUniqueOrThrow({ where: { publicId: followUp.publicId } });
+    const { publicId: _publicId, ...followUpData } = followUp;
+    await prisma.outcomeFollowUp.upsert({
+      where: { id: followUp.id },
+      update: {},
+      create: { ...followUpData, outcomeTraineeId: trainee.id, createdById: placementCell.id },
+    });
+  }
+
+  console.log(`Database seeded successfully. Outcomes accounts: admin tpo@college.edu, employer people@sungrid.example, provider admin@udaan.example, trainee aarav@trainee.example. Demo password: password123.`);
 }
 
 main()
